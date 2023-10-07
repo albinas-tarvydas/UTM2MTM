@@ -1,0 +1,131 @@
+C     - use for NAD27 --------------------------------------  M E R C S
+C      *   TRANSFORMATION : SPHERICAL TO TRANSVERSE MERCATOR      *
+C      *   A       = THE SEMI-MAJOR AXIS OF ELLIPSOID             *
+C      *   B       = THE SEMI-MINOR AXIS OF ELLIPSOID             *
+C      *   X0      = EASTING OF CENTRAL MERIDIAN                  *
+C      *   CM      = CENTRAL MERIDIAN                             *
+C      *   SF      = SCALE FACTOR AT CENTRAL MERIDIAN             *
+C      *   PSF     = POINT SCALE FACTOR                           *
+C      *----------------------------------------------------------*
+C      *   Ellipsoid Semi-major    Eccent Squared                 *
+C      *   NAD 83    6,378,137     0.006694300229                 *
+C      *   WGS 84    6 378 137    6 356 752.3142 298.257 223 563  *
+C      ************************************************************
+
+       PROGRAM MERCS
+       IMPLICIT     REAL*8 (A-H,O-Z)
+       CHARACTER*10 CD
+       LOGICAL*4    OK/.false./, ND/.false./, UP/.false./
+       REAL*8       LAM , LAT , LON   
+       COMMON       A,B,CM,X0,A0,A2,A4,A6,E2,E4,E6
+       DATA         R1D    / 1.7453292519943d-02 /
+
+       PRINT '( A$ )','   Enter  UTM ZONE #        --=>: '
+       READ( 5,* )  ZONE                ! TORONTO-ZONE 17
+       CEM     = 177 - ZONE*6
+       CM      = CEM
+       A       = 6378206.398d0          ! nad27
+       B       = 6356583.798d0          ! nad27
+c       A       = 6378137.0000d0        ! wgs84
+c       B       = 6356752.3142d0        ! wgs84
+       X0      = 500000d0
+       E2      = 1 - B/A*B/A
+       E4      = E2*E2
+       E6      = E4*E2
+       A0      = 1 - 0.25d0*E2 - 3.0d0/64*E4 - 5.0d0/256*E6
+       A2      = 0.375d0*(E2 + 0.25d0*E4 + 15.0d0/128*E6)
+       A4      = 15.0d0/256*( E4 + 0.75d0*E6 )
+       A6      = 35.0d0/3072*E6
+
+       OPEN( 1,file='geoposE' )              
+       OPEN( 2,file='uTe',status='new',form='formatted' )
+       SF   = .9996d0
+       GOTO 40
+      
+   10  CM   = CEM - 1.5
+       SF   = .9999d0
+       REWIND 1
+       OPEN( 2,file='mTe',status='new',form='formatted' )
+       OK   = .true.
+       GOTO 40
+  
+   20  CM   = CEM 
+       OPEN( 1,file='geoposW' )              
+       OPEN( 2,file='uTw',status='new',form='formatted' )
+       SF   = .9996d0
+       UP   = .true.
+       GOTO 40
+ 
+   30  CM   = CEM + 1.5
+       SF   = .9999d0
+       REWIND 1
+       OPEN( 2,file='mTw',status='new',form='formatted' )
+       ND   =.true.
+
+   40  READ( 1,*,END=50 ) CD , LAT , LON
+       PHI     = LAT*R1D
+       LAM     = LON*R1D
+       CALL GRID ( PHI,LAM,Y,X,PSF,SF,R1D )
+       WRITE( 2,15 ) CD , Y , X
+       GO TO 40
+
+   50  IF( ND ) GOTO 60
+       IF( UP ) GOTO 30  
+       IF( OK ) GOTO 20  
+       IF( CM.EQ.CEM ) GOTO 10
+
+   60  STOP' < MERCS Completed :> uTe , uTw , mTe , mTw  *'
+   15  FORMAT( A,' (',F11.3,'d0,',F11.3,'d0)' )
+       END
+ 
+C     ----------------------------------------------------  G R I D
+
+       SUBROUTINE GRID(PHI,LAM,Y,X,PSF,SF,R1D)
+       IMPLICIT REAL*8 (A-H,O-Z)
+       REAL*8   LAM
+       COMMON   A,B,CM,X0,A0,A2,A4,A6,E2,E4,E6
+ 
+       AM      = A*(A0*PHI - A2*SIN(2*PHI) +
+     +           A4*SIN(4*PHI) - A6*SIN(6*PHI))
+       W       = LAM - CM*R1D      
+       W2      = W*W
+       W3      = W2*W
+       W4      = W2*W2
+       W5      = W4*W
+       W6      = W2*W4
+       W7      = W5*W2
+       SP      = SIN(PHI)
+       CP      = COS(PHI)
+       TP      = TAN(PHI)
+       T1      = 1 - E2*SP*SP
+       T2      = TP*TP
+       T3      = 1 - E2
+       T4      = T2*T2
+       T6      = T2*T4
+       V       = A/SQRT(T1)
+       SI      = T1/T3
+       SI2     = SI*SI
+       SI3     = SI*SI2
+       SI4     = SI*SI3
+       CP2     = CP*CP
+       CP4     = CP2*CP2
+       CP6     = CP2*CP4
+
+       Y       = SF*(AM + V*SP*W2/2*CP*(1 + W2/12*CP2*
+     +           (4*SI2 +  SI -T2) +  W4/360*CP4*(8*SI4*
+     +           (11 - 24*T2) - 28*SI3*(1 - 6*T2) + SI2*
+     +           (1 - 32*T2) - SI*2*T2 + T4) + W6/20160*
+     +           CP6*(1384 - 3111*T2 + 543*T4 - T6)))
+
+       X       =-SF*(V*W*CP*(1 + W2/6*CP2*(SI - T2) +
+     +           W4/120*CP4*(4*(1 - 6*T2) + SI2*
+     +           (1 + 8*T2) - SI*2*T2 +T4) + W6/5040*
+     +           CP6*(61 - 47*T2 + 179*T4 -T6))) + X0
+
+       PSF     = SF*(1 + W2/2*SI*CP2 + W4/24*
+     +           CP4*(4*SI3*(1 - 6*T2) + SI2*
+     +           (1 + 24*T2) - 4*SI*T2) + W6/720*
+     +           CP6*(61 - 148*T2 + 16*T4))
+       RETURN
+       END
+ 
